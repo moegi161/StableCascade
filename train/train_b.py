@@ -13,7 +13,7 @@ from gdf import GDF, EpsilonTarget, CosineSchedule
 from gdf import VPScaler, CosineTNoiseCond, DDPMSampler, P2LossWeight, AdaptiveLossWeight
 from torchtools.transforms import SmartCrop
 
-from modules.effnet import EfficientNetEncoder
+from modules.effnet import EfficientNetEncoder, EfficientNetEncoderBlend, EfficientNetEncoderBlendCombined, EfficientNetEncoderBlendPostProj
 from modules.stage_a import StageA
 
 from modules.stage_b import StageB
@@ -54,6 +54,7 @@ class WurstCore(TrainingCore, DataCore, WarpCore):
     @dataclass(frozen=True)
     class Models(TrainingCore.Models, DataCore.Models, WarpCore.Models):
         effnet: nn.Module = EXPECTED
+        effnet_blend: nn.Module = EXPECTED #Ianna: for blending
         stage_a: nn.Module = EXPECTED
 
     @dataclass(frozen=True)
@@ -143,6 +144,20 @@ class WurstCore(TrainingCore, DataCore, WarpCore):
         effnet.load_state_dict(effnet_checkpoint if 'state_dict' not in effnet_checkpoint else effnet_checkpoint['state_dict'])
         effnet.eval().requires_grad_(False)
         del effnet_checkpoint
+        
+        # Ianna: EfficientNet for blending
+        effnet_blend = EfficientNetEncoderBlendCombined(
+            c_latent=16,
+            backbone_blend_points=[0],        # "all" or e.g. [2,3,4,7,9]
+            postproj_blend=False,              # add post-projection layer
+            alpha_backbone=1.0,                 # 1.0 = full replace inside mask; <1.0 = partial blend
+            alpha_post=1.0,                     # 1.0 = full replace inside mask; <1.0 = partial blend
+            warp_mask=False,            # set True if your mask needs alignment
+            warp_reference=False,       # set True if reference should be warped, too
+            keep_eval=True,            # no finetuning
+        ).to(self.device) # <-- use this for blending
+        effnet_blend.load_state_dict(effnet.state_dict())  # start from same weights
+        effnet_blend.eval().requires_grad_(False)
 
         # vqGAN
         stage_a = StageA().to(self.device)
@@ -203,7 +218,7 @@ class WurstCore(TrainingCore, DataCore, WarpCore):
             text_model = CLIPTextModelWithProjection.from_pretrained(self.config.clip_text_model_name).requires_grad_(False).to(dtype).to(self.device)
 
         return self.Models(
-            effnet=effnet, stage_a=stage_a,
+            effnet=effnet, effnet_blend=effnet_blend, stage_a=stage_a, #Ianna: add effnet_blend for blending
             generator=generator, generator_ema=generator_ema,
             tokenizer=tokenizer, text_model=text_model
         )

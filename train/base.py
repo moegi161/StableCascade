@@ -65,7 +65,7 @@ class DataCore(WarpCore):
                     dataset_path = yaml.safe_load(file)
             return setup_webdataset_path(dataset_path, cache_path=f"{self.config.experiment_id}_webdataset_cache.yml")
 
-    def webdataset_preprocessors(self, extras: Extras):
+    def webdataset_preprocessors_ori(self, extras: Extras):
         def identity(x):
             if isinstance(x, bytes):
                 x = x.decode('utf-8')
@@ -89,6 +89,49 @@ class DataCore(WarpCore):
             ('txt', identity, 'captions') if self.config.captions_getter is None else (
                 self.config.captions_getter[0], eval(self.config.captions_getter[1]), 'captions'),
         ]
+        
+    # inside DataCore
+    def webdataset_preprocessors(self, extras: Extras):
+        def _id(x):
+            return x.decode("utf-8") if isinstance(x, (bytes, bytearray)) else x
+
+        # image transforms: keep your existing 'extras.transforms'
+        img_tf = torchvision.transforms.ToTensor() if self.config.multi_aspect_ratio is not None else extras.transforms
+
+        # ref image should use the same transform (keeps sizes aligned if you resize)
+        ref_img_tf = img_tf
+
+        # masks -> float [0..1], 1 channel
+        mask_tf = torchvision.transforms.Compose([
+            torchvision.transforms.Grayscale(num_output_channels=1),
+            torchvision.transforms.ToTensor(),  # 0..1
+        ])
+
+        # Optional caption getter (as you had)
+        def get_caption(oc, c, p_og=0.05):
+            oc = json.loads(oc)["og_caption"] if isinstance(oc, (bytes, bytearray)) else oc
+            return _id(oc) if (p_og > 0 and np.random.rand() < p_og and len(oc) > 0) else _id(c)
+
+        captions_getter = MultiGetter(rules={
+            ('old_caption', 'caption'): lambda oc, c: get_caption(oc, c, p_og=0.05)
+        })
+
+        # Return a list of “(extensions, transform, key)” tuples.
+        # IMPORTANT: order here defines the indices used later in setup_data()
+        return [
+            ('jpg;png', img_tf, 'images'),              # target
+            ('ref.jpg;ref.png', ref_img_tf, 'ref_images'),
+            #('mask.png', mask_tf, 'target_masks'),      # optional
+            ('ref_mask.png', mask_tf, 'ref_masks'),     # optional
+            ('txt', _id, 'captions') if self.config.captions_getter is None else (
+                self.config.captions_getter[0],
+                eval(self.config.captions_getter[1]),
+                'captions'
+            ),
+            #('__key__', _id, '__key__'),                 # <-- pull through the sample key
+            #('json', _id, 'meta'),                      # optional meta (e.g., affine)
+        ]
+
 
     def setup_data(self, extras: Extras) -> WarpCore.Data:
         # SETUP DATASET
@@ -108,7 +151,8 @@ class DataCore(WarpCore):
             *[p[0] for p in preprocessors], handler=handler
         ).map_tuple(
             *[p[1] for p in preprocessors], handler=handler
-        ).map(lambda x: {p[2]: x[i] for i, p in enumerate(preprocessors)})
+        ).map(lambda x: {p[2]: x[i] for i, p in enumerate(preprocessors)}
+        )
 
         def identity(x):
             return x
