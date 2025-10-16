@@ -12,8 +12,6 @@ import os, pathlib, contextlib
 
 # Force headless matplotlib BEFORE importing pyplot
 import matplotlib
-
-from modules.effnet import EfficientNetEncoderBlend
 matplotlib.use("Agg")  # no GUI
 
 import matplotlib.pyplot as plt
@@ -242,4 +240,4 @@ with torch.no_grad(), torch.cuda.amp.autocast(dtype=torch.bfloat16):
     print("Decoded Size:", sampled.shape)
 
 save_images(batch['images'])
-save_images(sampled, prefix="blended_0_")
+save_images(sampled, prefix="blended_0flat_")

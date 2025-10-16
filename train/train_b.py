@@ -13,7 +13,7 @@ from gdf import GDF, EpsilonTarget, CosineSchedule
 from gdf import VPScaler, CosineTNoiseCond, DDPMSampler, P2LossWeight, AdaptiveLossWeight
 from torchtools.transforms import SmartCrop
 
-from modules.effnet import EfficientNetEncoder, EfficientNetEncoderBlend, EfficientNetEncoderBlendCombined, EfficientNetEncoderBlendPostProj
+from modules.effnet import EfficientNetEncoder, EfficientNetEncoderBlendCombined
 from modules.stage_a import StageA
 
 from modules.stage_b import StageB
@@ -156,7 +156,7 @@ class WurstCore(TrainingCore, DataCore, WarpCore):
             warp_reference=False,       # set True if reference should be warped, too
             keep_eval=True,            # no finetuning
         ).to(self.device) # <-- use this for blending
-        effnet_blend.load_state_dict(effnet.state_dict())  # start from same weights
+        effnet_blend.load_state_dict(effnet.state_dict(), strict=False)  # start from same weights
         effnet_blend.eval().requires_grad_(False)
 
         # vqGAN
